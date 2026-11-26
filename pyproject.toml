@@ -1,0 +1,33 @@
+[project]
+name = "skanda-ai-backend"
+version = "0.5.0"
+description = "FastAPI backend for the SKANDA AI website chatbot builder"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.165.0",
+    "starlette==1.10.0",
+    "uvicorn==0.34.0",
+    "pydantic==2.14.4",
+    "pydantic-settings==2.8.1",
+    "sqlalchemy[asyncio]==2.0.40",
+    "asyncpg==0.30.0",
+    "greenlet==3.1.1",
+    "httpx==0.28.1",
+    "pyjwt[crypto]==2.15.1",
+    "bcrypt==4.2.1",
+    "python-dotenv==1.2.4",
+    "pillow==13.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "pytest-asyncio==1.5.0",
+]
+
+[tool.uv]
+# This is a flat FastAPI application, not an installable Python library.
+package = false
+# Copies also work on Windows/OneDrive, where hardlinked wheels can fail.
+link-mode = "copy"
