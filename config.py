@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_echo: bool = False
+    # Upper bound on any single statement. A dropped connection to a remote
+    # database otherwise hangs the request until the OS gives up (~30s+).
+    db_command_timeout_seconds: float = Field(default=15.0, gt=0, le=300)
 
     # ---- Demo authentication ------------------------------------------
     # Explicit opt-in: one shared demo identity, never customer registration.
@@ -144,12 +147,12 @@ class Settings(BaseSettings):
     public_chat_ip_limit_per_minute: int = 20
     public_chat_max_message_length: int = 1_000
 
-    # ---- Publication gate (today's controlled demo) --------------------
-    # Phase 3 brief, section 11: "publishing must be limited to approved
-    # accounts and authorized websites". With this true, only the emails in
-    # `publish_allowed_emails` may publish. Set false once automated domain
-    # ownership verification exists.
-    publish_requires_approval: bool = True
+    # ---- Publication gate ----------------------------------------------
+    # Off by default so every signed-up account can publish its chatbot. Set
+    # PUBLISH_REQUIRES_APPROVAL=true to restrict publishing to the emails in
+    # `publish_allowed_emails` (e.g. a controlled demo). Without approval,
+    # nothing verifies that a customer owns the website they crawled.
+    publish_requires_approval: bool = False
     publish_allowed_emails: str = ""
 
     # ---- Floating launcher defaults ------------------------------------

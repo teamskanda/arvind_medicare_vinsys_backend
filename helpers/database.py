@@ -49,6 +49,7 @@ def _build_engine() -> AsyncEngine:
             "prepared_statement_cache_size": 0,
             "prepared_statement_name_func": lambda: f"__skanda_{uuid.uuid4().hex}__",
             "timeout": 15,
+            "command_timeout": settings.db_command_timeout_seconds,
             "server_settings": {"application_name": "skanda-ai-backend"},
             **tls_options,
         },

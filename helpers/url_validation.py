@@ -99,6 +99,8 @@ class SiteMetadata:
     status_code: int | None = None
     final_url: str | None = None
     title: str | None = None
+    # `og:site_name`: the site's own brand name, when it declares one.
+    site_name: str | None = None
     brand_color: str | None = None
     favicon_url: str | None = None
     warning: str | None = None
@@ -360,10 +362,12 @@ def _extract_branding(
     if title_match:
         title = re.sub(r"\s+", " ", title_match.group(1)).strip()
         metadata.title = title[:200] or None
+    og_match = _OG_SITE_NAME_RE.search(html)
+    if og_match:
+        site_name = re.sub(r"\s+", " ", og_match.group(1)).strip()[:200]
+        metadata.site_name = site_name or None
     if not metadata.title:
-        og_match = _OG_SITE_NAME_RE.search(html)
-        if og_match:
-            metadata.title = og_match.group(1).strip()[:200] or None
+        metadata.title = metadata.site_name
 
     color_match = _THEME_COLOR_RE.search(html) or _THEME_COLOR_RE_ALT.search(html)
     if color_match:

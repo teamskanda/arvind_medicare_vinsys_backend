@@ -16,6 +16,37 @@ def test_generic_store_overview_uses_real_homepage_content():
 
 def test_unrelated_questions_do_not_trigger_overview_fallback():
     assert not retrieval.needs_overview('Give me a cake recipe.')
+    assert not retrieval.needs_overview('How much does shipping cost?')
+    assert not retrieval.needs_overview('')
+
+@pytest.mark.parametrize('question', [
+    'What kind of website is this?',
+    'what type of business is this',
+    "What's this site?",
+    'What is this company about?',
+    'What are you about?',
+    'Tell me about yourselves',
+    'Who are you?',
+    'Can you tell me about your shop?',
+    'What does this store sell?',
+])
+def test_broad_questions_trigger_overview(question):
+    assert retrieval.needs_overview(question)
+
+def test_what_kind_of_website_gets_homepage_content():
+    page = retrieval.PageRow(id=uuid.uuid4(),url='https://books.test/',title='Catalogue',content='# Books\n\nA Light in the Attic is available for GBP 51.77. A selection of books and reading material.',priority=100)
+    result=retrieval.search([page]*20,'What kind of website is this?',budget_tokens=80,max_sections=2,min_score=.08)
+    assert result.sections
+
+def test_publishing_is_open_by_default():
+    assert Settings(_env_file=None, database_url='postgresql://u:p@localhost/x').publish_requires_approval is False
+
+def test_database_statements_have_a_timeout(monkeypatch):
+    from helpers import database
+    captured = {}
+    monkeypatch.setattr(database, 'create_async_engine', lambda url, **kw: captured.update(kw) or object())
+    database._build_engine()
+    assert captured['connect_args']['command_timeout'] == get_settings().db_command_timeout_seconds
 
 def test_reading_material_paraphrase_matches_books():
     assert 'book' in retrieval.extract_keywords('What reading material can I purchase here?')

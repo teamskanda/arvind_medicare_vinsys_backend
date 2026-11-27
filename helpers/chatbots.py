@@ -82,7 +82,9 @@ async def create_chatbot(
             status_code=409,
         )
 
-    name = requested_name or derive_chatbot_name(metadata.title, validated.host)
+    name = requested_name or derive_chatbot_name(
+        metadata.title, validated.host, site_name=metadata.site_name
+    )
 
     for _ in range(5):  # retry on the astronomically unlikely id collision
         chatbot = Chatbot(

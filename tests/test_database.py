@@ -15,6 +15,7 @@ def test_verify_full_uses_system_certificates(monkeypatch):
         db_echo=False,
         db_pool_size=5,
         db_max_overflow=5,
+        db_command_timeout_seconds=15.0,
     )
     factory = Mock()
     monkeypatch.setattr(database, "get_settings", lambda: settings)
@@ -38,6 +39,7 @@ def test_local_database_does_not_force_tls(monkeypatch):
         db_echo=False,
         db_pool_size=5,
         db_max_overflow=5,
+        db_command_timeout_seconds=15.0,
     )
     factory = Mock()
     monkeypatch.setattr(database, "get_settings", lambda: settings)

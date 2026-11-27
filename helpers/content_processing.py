@@ -189,19 +189,62 @@ def normalise_title(title: object, fallback_url: str) -> str:
     return (pretty.title() or "Untitled page")[:200]
 
 
-def derive_chatbot_name(site_title: str | None, host: str) -> str:
-    """Name the chatbot from the site title, falling back to the domain."""
-    if site_title:
-        name = re.split(r"\s+[\|\-–—:]\s+", site_title.strip())[0].strip()
-        name = re.sub(r"\s+", " ", name)
-        if 2 <= len(name) <= 60:
-            return f"{name} Assistant"
+def _host_labels(host: str) -> list[str]:
+    """Meaningful domain labels: no www/m prefix, no TLD, nothing tiny.
 
-    label = host.lower()
+    `www.books.toscrape.com` -> ["books", "toscrape"]; `blue-ridge.co.in`
+    -> ["blue-ridge"] (the "co" second-level suffix is too short to count).
+    """
+    label = host.lower().rstrip(".")
     for prefix in ("www.", "m."):
         if label.startswith(prefix):
             label = label[len(prefix) :]
-    root = label.split(".")[0]
+    parts = label.split(".")[:-1] or label.split(".")
+    return [part for part in parts if len(part) >= 3]
+
+
+def _usable_name(value: str | None) -> str | None:
+    if not value:
+        return None
+    name = re.sub(r"\s+", " ", value).strip()
+    return name if 2 <= len(name) <= 60 else None
+
+
+def derive_chatbot_name(
+    site_title: str | None, host: str, *, site_name: str | None = None
+) -> str:
+    """Name the chatbot after the business, falling back to the domain.
+
+    Preference order:
+      1. `og:site_name`, the brand name the site declares for itself;
+      2. the title segment that matches the domain ("All products | Books to
+         Scrape" on books.toscrape.com -> "Books to Scrape"), because a page
+         title often leads with the page, not the brand;
+      3. the first title segment (the usual "Brand | Tagline" layout);
+      4. the domain itself.
+    """
+    declared = _usable_name(site_name)
+    if declared:
+        return f"{declared} Assistant"
+
+    labels = _host_labels(host)
+    if site_title:
+        segments = [
+            segment
+            for segment in (
+                _usable_name(part)
+                for part in re.split(r"\s+[\|\-–—:·•]\s+", site_title.strip())
+            )
+            if segment
+        ]
+        for segment in segments:
+            compact = re.sub(r"[^a-z0-9]", "", segment.lower())
+            if any(re.sub(r"[^a-z0-9]", "", label) in compact for label in labels):
+                return f"{segment} Assistant"
+        if segments:
+            return f"{segments[0]} Assistant"
+
+    root = labels[0] if labels else (host.lower().split(".")[0] or "website")
     pretty = re.sub(r"[-_]+", " ", root).strip().title() or "Website"
     return f"{pretty} Assistant"
 

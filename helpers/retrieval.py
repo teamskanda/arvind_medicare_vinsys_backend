@@ -313,8 +313,25 @@ def contextual_query(question: str, history: list[tuple[str, str]]) -> str:
     return f'{question}\n{previous[:2000]}' if previous else question
 
 
+# Broad "what is this place?" questions. They rarely share vocabulary with the
+# site's own pages, so keyword ranking finds nothing; these get the site's
+# highest-priority (homepage/about) content instead of the fallback reply.
+_PLACE = r"(?:website|web\s?site|site|business|company|shop|store|brand|organi[sz]ation|place|page)"
+_OVERVIEW_RE = re.compile(
+    r"\boverview\b"
+    r"|\bwhat (?:does|do)\b.{0,80}\b(?:sell|offer|do|provide)\b"
+    r"|\bwhat (?:kind|type|sort) of " + _PLACE + r"\b"
+    r"|\bwhat(?:'s| is| are)? (?:this|that|your|the) " + _PLACE + r"\b"
+    r"|\bwhat (?:is|are) (?:this|these|you) (?:all )?about\b"
+    r"|\btell me (?:more )?about (?:this|your|the|you|yourselves)\b"
+    r"|\bwho (?:are you|are you guys|is this|runs this)\b"
+    r"|\babout (?:this|your|the) " + _PLACE + r"\b",
+    re.IGNORECASE,
+)
+
+
 def needs_overview(question: str) -> bool:
-    return bool(re.search(r'\boverview\b|what (?:does|do)\b.{0,80}\b(?:sell|offer|do)\b|tell me about (?:this|your) (?:website|business)|what is (?:this|your) (?:website|business)', question, re.IGNORECASE))
+    return bool(_OVERVIEW_RE.search(question or ""))
 
 
 def _stem(word: str) -> str:

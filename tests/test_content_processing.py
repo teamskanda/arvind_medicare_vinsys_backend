@@ -135,6 +135,25 @@ def test_chatbot_name_falls_back_to_domain():
     assert cp.derive_chatbot_name(None, "www.blue-ridge.co.in") == "Blue Ridge Assistant"
 
 
+def test_chatbot_name_prefers_the_title_segment_matching_the_domain():
+    # The page leads its title with the page name, not the brand.
+    assert cp.derive_chatbot_name(
+        "All products | Books to Scrape - Sandbox", "books.toscrape.com"
+    ) == "Books to Scrape Assistant"
+
+
+def test_chatbot_name_prefers_declared_site_name():
+    assert cp.derive_chatbot_name(
+        "Home | Welcome", "acme.com", site_name="Acme Interiors"
+    ) == "Acme Interiors Assistant"
+
+
+def test_chatbot_name_ignores_unusable_site_name():
+    assert cp.derive_chatbot_name(
+        "Acme Industries | Steel Fabrication", "acme.com", site_name="  "
+    ) == "Acme Industries Assistant"
+
+
 # ---------------------------------------------------------------------------
 # process_documents
 # ---------------------------------------------------------------------------
