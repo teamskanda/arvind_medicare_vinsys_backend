@@ -25,10 +25,11 @@ from helpers.token_manager import build_budget
 
 
 def section(text: str, *, title: str = "Pricing", heading: str | None = "Packages",
-            url: str = "https://acme.test/pricing", priority: int = 88) -> Section:
+            url: str = "https://acme.test/pricing", priority: int = 88,
+            score: float = 0.0, matched: tuple[str, ...] = ()) -> Section:
     return Section(
         page_id=uuid.uuid4(), page_title=title, url=url, heading=heading,
-        text=text, priority=priority, index=0,
+        text=text, priority=priority, index=0, score=score, matched_terms=matched,
     )
 
 
@@ -234,10 +235,12 @@ def test_an_empty_section_list_produces_no_block():
 # ---------------------------------------------------------------------------
 
 
-def test_citations_come_from_the_stored_rows():
+def test_citations_come_from_the_stored_rows_best_match_first():
     sections = [
-        section("A", title="Pricing", url="https://acme.test/pricing"),
-        section("B", title="Contact", heading=None, url="https://acme.test/contact"),
+        section("A", title="Contact", heading=None, url="https://acme.test/contact",
+                score=2.0, matched=("call",)),
+        section("B", title="Pricing", url="https://acme.test/pricing",
+                score=3.0, matched=("price",)),
     ]
     citations = build_citations(sections)
     assert [c["url"] for c in citations] == [
@@ -249,10 +252,51 @@ def test_citations_come_from_the_stored_rows():
 
 def test_citations_are_deduplicated_per_page():
     sections = [
-        section("A", heading="Packages", url="https://acme.test/pricing"),
-        section("B", heading="Payment", url="https://acme.test/pricing"),
+        section("A", heading="Packages", url="https://acme.test/pricing", matched=("price",)),
+        section("B", heading="Payment", url="https://acme.test/pricing", matched=("price",)),
     ]
     assert len(build_citations(sections)) == 1
+
+
+def test_weak_matches_are_not_cited_next_to_a_strong_one():
+    sections = [
+        section("Jane Eyre", url="https://acme.test/jane-eyre", score=6.0, matched=("jane", "eyre")),
+        section("Other book", url="https://acme.test/other", score=1.0, matched=("price",)),
+    ]
+    assert [c["url"] for c in build_citations(sections)] == ["https://acme.test/jane-eyre"]
+
+
+def test_citations_are_capped_at_the_limit():
+    sections = [
+        section("x", url=f"https://acme.test/p{i}", score=float(10 + i), matched=("x",))
+        for i in range(6)
+    ]
+    citations = build_citations(sections, limit=2)
+    assert [c["url"] for c in citations] == ["https://acme.test/p5", "https://acme.test/p4"]
+
+
+def test_sections_that_matched_nothing_are_not_cited():
+    # "hi": the model may read the homepage, but nothing answered a question.
+    sections = [section("Welcome", url="https://acme.test/", priority=100)]
+    assert build_citations(sections, question="hi") == []
+
+
+def test_an_overview_question_cites_the_top_page():
+    sections = [
+        section("About", url="https://acme.test/about", priority=60),
+        section("Home", url="https://acme.test/", priority=100),
+    ]
+    citations = build_citations(sections, question="What kind of website is this?")
+    assert [c["url"] for c in citations] == ["https://acme.test/"]
+
+
+def test_follow_up_rule_is_only_added_when_requested():
+    with_rule = build_system_text(config(), has_knowledge=True, cite_sources=True, follow_ups=2)
+    without = build_system_text(config(), has_knowledge=True, cite_sources=True)
+    assert "[[FOLLOW_UPS]]" in with_rule and "2 questions" in with_rule
+    assert "[[FOLLOW_UPS]]" not in without
+    no_knowledge = build_system_text(config(), has_knowledge=False, cite_sources=True, follow_ups=2)
+    assert "[[FOLLOW_UPS]]" not in no_knowledge
 
 
 def test_citations_are_empty_when_disabled():

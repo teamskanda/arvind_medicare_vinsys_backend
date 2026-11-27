@@ -124,14 +124,12 @@ def test_a_small_site_prompt_contains_the_answer():
     assert "Rs. 3,50,000" in prompt
 
 
-def test_citations_cover_every_page_of_a_small_site():
-    _result, built, _budget = run(small_site(), "How much for a 2BHK?")
-    urls = {citation["url"] for citation in built.citations}
-    assert urls == {
-        "https://acme.test",
-        "https://acme.test/pricing",
-        "https://acme.test/contact",
-    }
+def test_a_small_site_cites_only_the_pages_that_answer():
+    # The whole site is sent to the model, but only the matching page is cited.
+    result, built, _budget = run(small_site(), "How much for a 2BHK?")
+    assert result.whole_knowledge_base_used is True
+    urls = [citation["url"] for citation in built.citations]
+    assert urls == ["https://acme.test/pricing"]
 
 
 # ---------------------------------------------------------------------------

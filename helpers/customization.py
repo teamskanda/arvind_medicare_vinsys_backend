@@ -209,7 +209,9 @@ COLOR_PRESETS: tuple[tuple[str, str], ...] = (
 )
 
 DEFAULT_THEME = "light"
-DEFAULT_FONT = "system"
+# Inter, self-hosted by the embed page: identical on every device, where the
+# system stack falls back to a thin Segoe UI on Windows.
+DEFAULT_FONT = "inter"
 DEFAULT_BORDER_RADIUS = 12
 
 # Base surfaces per theme. Only the three that cannot be derived from a brand

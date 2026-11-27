@@ -41,7 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from helpers import conversations as conversation_helpers
-from helpers import deployment, errors, gemma, prompt_builder, retrieval
+from helpers import deployment, errors, follow_ups, gemma, prompt_builder, retrieval
 from helpers.chatbots import get_chatbot
 from helpers.prompt_builder import BuiltPrompt, ChatbotAiConfig
 from helpers.token_manager import build_budget, count_tokens
@@ -256,6 +256,8 @@ async def prepare(db: AsyncSession, request: TurnRequest) -> PreparedTurn:
         history=history,
         budget=budget,
         system_role_mode=settings.gemma_system_role_mode,
+        follow_ups=settings.chat_follow_up_questions,
+        max_citations=settings.chat_max_sources,
     )
 
     return PreparedTurn(
@@ -306,9 +308,13 @@ async def complete(db: AsyncSession, turn: PreparedTurn) -> ChatResponse:
             temperature=settings.gemma_temperature,
             max_output_tokens=settings.gemma_max_output_tokens,
         )
-        answer = result.text
+        answer, suggestions = follow_ups.split_answer(
+            result.text,
+            limit=settings.chat_follow_up_questions,
+            question=turn.question,
+        )
         input_tokens = result.usage.input_tokens or turn.prompt.prompt_tokens_estimated
-        output_tokens = result.usage.output_tokens or count_tokens(answer)
+        output_tokens = result.usage.output_tokens or count_tokens(result.text)
 
         if not answer:
             # Empty generation (safety filter, or a provider returning no
@@ -345,7 +351,11 @@ async def complete(db: AsyncSession, turn: PreparedTurn) -> ChatResponse:
         error_code=error_code,
     )
     return _response(
-        turn, user_message, assistant_message, used_fallback=used_fallback
+        turn,
+        user_message,
+        assistant_message,
+        used_fallback=used_fallback,
+        follow_up_questions=[] if used_fallback else suggestions,
     )
 
 
@@ -393,7 +403,12 @@ async def stream_complete(
         }
         return
 
-    collected: list[str] = []
+    # The splitter keeps the follow-up block out of what the visitor sees and
+    # out of what is stored; `raw` is the full output, for token accounting.
+    splitter = follow_ups.StreamSplitter(
+        limit=settings.chat_follow_up_questions, question=turn.question
+    )
+    raw: list[str] = []
     reported_input: int | None = None
     reported_output: int | None = None
     error: errors.AppError | None = None
@@ -406,8 +421,10 @@ async def stream_complete(
             max_output_tokens=settings.gemma_max_output_tokens,
         ):
             if delta:
-                collected.append(delta)
-                yield {"type": "delta", "text": delta}
+                raw.append(delta)
+                visible = splitter.feed(delta)
+                if visible:
+                    yield {"type": "delta", "text": visible}
             if usage is not None and usage.reported:
                 reported_input = usage.input_tokens
                 reported_output = usage.output_tokens
@@ -417,7 +434,10 @@ async def stream_complete(
         logger.exception("Unexpected failure while streaming for chatbot %s.", turn.chatbot.id)
         error = errors.ai_unavailable()
 
-    answer = "".join(collected).strip()
+    held_back, suggestions = splitter.finish()
+    if held_back:
+        yield {"type": "delta", "text": held_back}
+    answer = splitter.answer
 
     if error is not None and not answer:
         # Nothing usable arrived: record the failure and tell the client.
@@ -450,7 +470,7 @@ async def stream_complete(
         content=answer,
         source_references=citations,
         input_tokens=reported_input or turn.prompt.prompt_tokens_estimated,
-        output_tokens=reported_output or count_tokens(answer),
+        output_tokens=reported_output or count_tokens("".join(raw)),
         error_code="stream_interrupted" if partial else None,
     )
 
@@ -462,6 +482,7 @@ async def stream_complete(
         "used_fallback": used_fallback,
         "partial": partial,
         "message": MessageOut.model_validate(assistant_message).model_dump(mode="json"),
+        "follow_up_questions": [] if used_fallback or partial else suggestions,
     }
 
 
@@ -520,7 +541,12 @@ async def sse_events(db: AsyncSession, turn: PreparedTurn) -> AsyncIterator[str]
 
 
 def _response(
-    turn: PreparedTurn, user_message, assistant_message, *, used_fallback: bool
+    turn: PreparedTurn,
+    user_message,
+    assistant_message,
+    *,
+    used_fallback: bool,
+    follow_up_questions: list[str] | None = None,
 ) -> ChatResponse:
     return ChatResponse(
         conversation_id=turn.conversation.id,
@@ -528,4 +554,5 @@ def _response(
         assistant_message=MessageOut.model_validate(assistant_message),
         retrieval=turn.debug(),
         used_fallback=used_fallback,
+        follow_up_questions=follow_up_questions or [],
     )

@@ -177,3 +177,6 @@ class ChatResponse(ApiSchema):
     # True when we returned the configured fallback because nothing relevant
     # was found, rather than an answer grounded in retrieved content.
     used_fallback: bool = False
+    # Questions the visitor is likely to ask next, shown as clickable chips.
+    # Generated with the answer; not stored, since only the latest matters.
+    follow_up_questions: list[str] = Field(default_factory=list)

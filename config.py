@@ -120,6 +120,12 @@ class Settings(BaseSettings):
     chat_rate_limit_per_day: int = 300
     retrieval_max_sections: int = 12
     retrieval_min_score: float = 0.08
+    # Source links shown under an answer, best match first. The model may
+    # read more sections than this; only the most relevant pages are cited.
+    chat_max_sources: int = Field(default=2, ge=0, le=10)
+    # Clickable "you might also ask" questions generated with each answer,
+    # in the same model call. 0 turns the feature off.
+    chat_follow_up_questions: int = Field(default=2, ge=0, le=4)
 
     # ---- Public deployment (Phase 3) -----------------------------------
     # Where the universal embed page is served. In development this is the

@@ -25,6 +25,18 @@ _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
+def _uses_transaction_pooler(database_url) -> bool:
+    """True for PgBouncer-style poolers, which cannot reuse prepared statements.
+
+    Neon's pooled endpoints carry `-pooler` in the hostname; Supabase's
+    transaction pooler listens on 6543. A direct connection (Neon's default
+    endpoint) can cache statements, which halves the database round trips per
+    query — the dominant cost when the API and the database are far apart.
+    """
+    host = (database_url.host or "").lower()
+    return "-pooler" in host or "pooler." in host or database_url.port == 6543
+
+
 def _build_engine() -> AsyncEngine:
     settings = get_settings()
     database_url = make_url(settings.database_url)
@@ -34,6 +46,15 @@ def _build_engine() -> AsyncEngine:
         # modes otherwise expect a separate PostgreSQL root.crt file.
         tls_options["ssl"] = ssl.create_default_context()
         database_url = database_url.difference_update_query(["ssl"])
+
+    statement_options: dict = {}
+    if _uses_transaction_pooler(database_url):
+        # A transaction pooler cannot reuse prepared statements: disable the
+        # cache and use unique names so statements never collide.
+        statement_options = {
+            "prepared_statement_cache_size": 0,
+            "prepared_statement_name_func": lambda: f"__skanda_{uuid.uuid4().hex}__",
+        }
     return create_async_engine(
         database_url,
         echo=settings.db_echo,
@@ -42,12 +63,7 @@ def _build_engine() -> AsyncEngine:
         pool_pre_ping=True,  # survives Supabase idle-connection recycling
         pool_recycle=1800,
         connect_args={
-            # Supabase's transaction-mode pooler (port 6543) cannot reuse
-            # prepared statements. Disabling the cache and using unique
-            # statement names makes the same code work against the session
-            # pooler, the transaction pooler and a direct connection.
-            "prepared_statement_cache_size": 0,
-            "prepared_statement_name_func": lambda: f"__skanda_{uuid.uuid4().hex}__",
+            **statement_options,
             "timeout": 15,
             "command_timeout": settings.db_command_timeout_seconds,
             "server_settings": {"application_name": "skanda-ai-backend"},

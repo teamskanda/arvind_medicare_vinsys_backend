@@ -460,6 +460,7 @@ def test_turning_citations_off_removes_them_from_the_built_prompt():
         priority=5,
         index=0,
         score=1.0,
+        matched_terms=("kitchen",),
     )
     for cite, expected in ((True, 1), (False, 0)):
         built = build_prompt(

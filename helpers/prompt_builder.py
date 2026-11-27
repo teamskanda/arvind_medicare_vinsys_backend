@@ -22,7 +22,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from helpers.retrieval import Section
+from helpers.follow_ups import MARKER as FOLLOW_UP_MARKER
+from helpers.retrieval import Section, needs_overview
 from helpers.token_manager import (
     count_message_tokens,
     count_single_message_tokens,
@@ -315,7 +316,11 @@ class BuiltPrompt:
 
 
 def build_system_text(
-    config: ChatbotAiConfig, *, has_knowledge: bool, cite_sources: bool
+    config: ChatbotAiConfig,
+    *,
+    has_knowledge: bool,
+    cite_sources: bool,
+    follow_ups: int = 0,
 ) -> str:
     """The persona, rules and fallback policy. Contains no website content."""
     language_rule = (
@@ -362,6 +367,18 @@ def build_system_text(
         rules.append(
             "No website content was found for this question, so use the fallback reply."
         )
+    elif follow_ups > 0:
+        count = "one question" if follow_ups == 1 else f"{follow_ups} questions"
+        rules.append(
+            f"Except when you give the fallback reply, end with a new line that starts "
+            f"with {FOLLOW_UP_MARKER} followed by {count} the visitor is likely to ask "
+            "you next, separated by \" | \". Write each exactly as the visitor would "
+            "type it to you (for example \"Do you deliver to Bengaluru?\"), never as a "
+            "question from you to the visitor such as \"Would you like...\" or \"Is "
+            "there anything else...\". Keep each under 10 words, in the visitor's "
+            "language, about something the website content answers, and different "
+            "from the question just asked."
+        )
 
     numbered = "\n".join(f"{index}. {rule}" for index, rule in enumerate(rules, start=1))
 
@@ -404,15 +421,41 @@ def format_knowledge_block(sections: list[Section]) -> str:
     return "".join(parts)
 
 
-def build_citations(sections: list[Section]) -> list[dict]:
-    """Deduplicated citations, one per source page, in retrieval order.
+# A cited page must score at least this fraction of the best match.
+CITATION_RELATIVE_SCORE = 0.5
+
+
+def build_citations(
+    sections: list[Section], *, question: str = "", limit: int | None = None
+) -> list[dict]:
+    """Deduplicated citations, one per source page, most relevant first.
 
     Built from the stored rows, never parsed out of the model's answer, so the
     model cannot fabricate a source.
+
+    The model may read many sections, but a visitor only needs the pages that
+    actually match their question. So citations come from sections that
+    matched a query term, ranked by score. A question nothing matched ("hi")
+    cites nothing; a broad "what is this website?" cites the top page.
     """
+    matched = [section for section in sections if section.matched_terms]
+    if matched:
+        ranked = sorted(matched, key=lambda s: (-s.score, -s.priority, s.index))
+        # A page that only shares a generic word ("price") with the question
+        # is not a source for the answer: keep pages close to the best match.
+        best = ranked[0].score
+        if best > 0:
+            ranked = [s for s in ranked if s.score >= best * CITATION_RELATIVE_SCORE]
+    elif question and needs_overview(question):
+        ranked = sorted(sections, key=lambda s: (-s.priority, s.index))[:1]
+    else:
+        ranked = []
+
     citations: list[dict] = []
     seen: set[str] = set()
-    for section in sections:
+    for section in ranked:
+        if limit is not None and len(citations) >= limit:
+            break
         if section.url in seen:
             continue
         seen.add(section.url)
@@ -464,6 +507,8 @@ def build_prompt(
     history: list[tuple[str, str]],
     budget: TokenBudget,
     system_role_mode: str = "merge",
+    follow_ups: int = 0,
+    max_citations: int | None = None,
 ) -> BuiltPrompt:
     """Assemble the full request within `budget`.
 
@@ -479,7 +524,10 @@ def build_prompt(
     safe_question = sanitise_question(question)
 
     system_text = build_system_text(
-        config, has_knowledge=bool(sections), cite_sources=config.cite_sources
+        config,
+        has_knowledge=bool(sections),
+        cite_sources=config.cite_sources,
+        follow_ups=follow_ups,
     )
     system_tokens = count_tokens(system_text)
     # Long legitimate custom instructions must not silently cut off the
@@ -549,5 +597,9 @@ def build_prompt(
         prompt_tokens_estimated=prompt_tokens,
         history_messages_used=len(fitted_history),
         sections_used=len(usable),
-        citations=build_citations(usable) if config.cite_sources else [],
+        citations=(
+            build_citations(usable, question=question, limit=max_citations)
+            if config.cite_sources
+            else []
+        ),
     )

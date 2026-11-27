@@ -587,6 +587,11 @@ def search(
     total_tokens = sum(count_tokens(section.text) for section in all_sections)
 
     if total_tokens <= budget_tokens and len(all_sections) <= max_sections:
+        # Everything is sent, in the site's own order. Scoring still runs so
+        # each section knows which query terms it matched: that is what picks
+        # the few citations worth showing (prompt_builder.build_citations).
+        if result.keywords:
+            score_sections(all_sections, result.keywords)
         ordered = sorted(all_sections, key=lambda s: (-s.priority, s.index))
         result.sections = ordered
         result.knowledge_tokens = total_tokens
